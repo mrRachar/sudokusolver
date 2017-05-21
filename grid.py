@@ -43,6 +43,13 @@ class Box:
     def is_filled(self):
         return not not self.value
 
+    def copy(self):
+        return self.__class__(self._value, set(self.possible_values), coords=self.coords)
+
+    def __eq__(self, other):
+        return self._value == other.value and self.possible_values == other.possible_values
+
+
 Column = List[Box]
 Row = List[Box]
 
@@ -55,7 +62,8 @@ class BoxGrid:
         if len(args) == 1:
             base, = args
             if isinstance(base, BoxGrid):
-                self.columns = base.columns.copy()
+                base = base.deep_copy()
+                self.columns = base.columns
                 self.block_height = base.block_height
                 self.block_width = base.block_width
             elif isinstance(base, Iterable):
@@ -190,3 +198,14 @@ class BoxGrid:
                 if box.possible_values:
                     return False
         return True
+
+    def deep_copy(self):
+        return BoxGrid([[box.copy() for box in column] for column in self.columns])
+
+    def __eq__(self, other):
+        for col, othercol in zip(self.columns, other.columns):
+            for box, otherbox in zip(col, othercol):
+                if box != otherbox:
+                    return False
+        return True
+
