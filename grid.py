@@ -1,4 +1,4 @@
-from typing import Set, List, Tuple, Union, Iterable, Callable, Iterator, TypeVar, Optional
+from typing import Set, List, Tuple, Union, Iterable, Callable, Iterator, Optional
 import math as maths
 
 
@@ -36,7 +36,7 @@ class Box:
     def finalise(self) -> int:
         """Make the only remaining possible value the value"""
         assert len(self.possible_values) == 1, BoxNotSolvedException
-        self.value, = tuple(self.possible_values)
+        self.value, = self.possible_values
         return self.value
 
     @property
@@ -47,7 +47,7 @@ class Box:
         return self.__class__(self._value, set(self.possible_values), coords=self.coords)
 
     def __eq__(self, other):
-        return self._value == other.value and self.possible_values == other.possible_values
+        return isinstance(other, Box) and self.value == other.value and self.possible_values == other.possible_values
 
 
 Column = List[Box]
@@ -149,16 +149,12 @@ class BoxGrid:
         elif isinstance(position, tuple):
             self.columns[position[0]][position[1]] = value
 
-    @property
-    def array_functions(self) -> Iterator[Callable[[], List[List[Box]]]]:
-        yield from (self.get_columns, self.get_rows, self.get_blocks)
-
     def get_all_arrays(self) -> List[List[Box]]:
         """Return all the 'arrays' of boxes that can be made out of the BoxGrid
 
         It will return the columns, then the rows, and then the boxes
         """
-        for array_f in self.array_functions:
+        for array_f in (self.get_columns, self.get_rows, self.get_blocks):
             yield array_f()
 
     @property
@@ -167,8 +163,7 @@ class BoxGrid:
 
         First the columns, then the rows, and then the boxes
         """
-        for array_f in self.array_functions:
-            yield array_f()
+        yield from self.get_all_arrays()
 
     def get_containing_array_functions(self, position: Coordinate) -> Iterator[Callable[[], List[Box]]]:
         x, y = position
@@ -187,10 +182,13 @@ class BoxGrid:
     def box_values(iter_of_boxes: Iterable[Box]) -> Iterable[Optional[int]]:
         return iter_of_boxes.__class__(x.value for x in iter_of_boxes)
 
-    def update_stored_box_coordinates(self):
+    def update_boxes_internal_coordinates(self):
         for x, column in enumerate(self.columns):
             for y, box in enumerate(column):
                 box.coords = (x, y)
+
+    def deep_copy(self):
+        return BoxGrid([[box.copy() for box in column] for column in self.columns])
 
     def check_complete(self):
         for row in self.rows:
@@ -199,10 +197,9 @@ class BoxGrid:
                     return False
         return True
 
-    def deep_copy(self):
-        return BoxGrid([[box.copy() for box in column] for column in self.columns])
-
     def __eq__(self, other):
+        if not isinstance(other, BoxGrid):
+            return False
         for col, othercol in zip(self.columns, other.columns):
             for box, otherbox in zip(col, othercol):
                 if box != otherbox:
