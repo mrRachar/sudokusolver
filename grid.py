@@ -1,13 +1,21 @@
-from typing import Set, List, TypeVar, Tuple, Union, Iterable
+from typing import Set, List, Tuple, Union, Iterable, Callable, Iterator, TypeVar, Optional
+import math as maths
 
+
+Coordinate = Tuple[int, int]
+Position = Union[Coordinate, int]
+
+class BoxNotSolvedException(Exception): pass
 
 class Box:
     _value: int
     possible_values: Set[int]
+    coords: Optional[Coordinate]
 
-    def __init__(self, value: int=None, possible_values: Set[int]=None):
-        self.possible_values = possible_values or {n+1 for n in range(9)}
+    def __init__(self, value: int=None, possible_values: Set[int]=None, *, coords: Coordinate=None):
+        self.possible_values = possible_values if possible_values is not None else {n+1 for n in range(9)}
         self._value = value
+        self.coords = coords
 
     def clear_possible_values(self):
         self.possible_values &= set()
@@ -23,13 +31,20 @@ class Box:
         self._value = n
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.value}, {self.possible_values})"
+        return f"{self.__class__.__name__}({self.value}, {self.possible_values}, coords={self.coords})"
 
+    def finalise(self) -> int:
+        """Make the only remaining possible value the value"""
+        assert len(self.possible_values) == 1, BoxNotSolvedException
+        self.value, = tuple(self.possible_values)
+        return self.value
+
+    @property
+    def is_filled(self):
+        return not not self.value
 
 Column = List[Box]
 Row = List[Box]
-Coordinate = Tuple[int, int]
-Position = Union[Coordinate, int]
 
 class BoxGrid:
     block_height: int = 3
@@ -61,7 +76,7 @@ class BoxGrid:
             height = kwargs.get('height', height)
             width = kwargs.get('width', width)
 
-            self.columns = [[Box() for _ in range(height)] for _ in range(width)]
+            self.columns = [[Box(coords=(x, y)) for y in range(height)] for x in range(width)]
 
         self.block_height = kwargs.get('block_height', self.block_height)
         self.block_width = kwargs.get('block_width', self.block_width)
@@ -126,34 +141,48 @@ class BoxGrid:
         elif isinstance(position, tuple):
             self.columns[position[0]][position[1]] = value
 
-    def get_containing_arrays(self, position: Coordinate):
-        x, y = position
-        blocks_tall = (self.height // self.block_height) + 1
-        block_n = (blocks_tall * (x // self.block_width)) + (y//self.block_height)
-        block = self.get_blocks()[block_n]
-        return (self.rows[y],
-                self.columns[x],
-                block)
+    @property
+    def array_functions(self) -> Iterator[Callable[[], List[List[Box]]]]:
+        yield from (self.get_columns, self.get_rows, self.get_blocks)
 
-    def update_possible_values(self, position: Coordinate=None):
-        if None:
-            self.update_all_possible_values()
+    def get_all_arrays(self) -> List[List[Box]]:
+        """Return all the 'arrays' of boxes that can be made out of the BoxGrid
+
+        It will return the columns, then the rows, and then the boxes
+        """
+        for array_f in self.array_functions:
+            yield array_f()
+
+    @property
+    def all_arrays(self) -> Iterable[List[List[Box]]]:
+        """All the 'arrays' of boxes that can be made out of the BoxGrid
+
+        First the columns, then the rows, and then the boxes
+        """
+        for array_f in self.array_functions:
+            yield array_f()
+
+    def get_containing_array_functions(self, position: Coordinate) -> Iterator[Callable[[], List[Box]]]:
         x, y = position
-        for array in self.get_containing_arrays(position):
-            boxes_values = self.box_values(array)
-            for box in array:
-                if not box.possible_values:
-                    continue
-                elif len(box.possible_values) == 1:
-                    box.value = tuple(box.possible_values)[0]
-                for possible_value in set(box.possible_values):
-                    # Okay, as only ints are possible_values, and None is default value
-                    if possible_value in boxes_values:
-                        box.possible_values.remove(possible_value)
+        blocks_tall = maths.ceil(self.height / self.block_height)
+        block_n = (blocks_tall * (x // self.block_width)) + (y//self.block_height)
+        yield from (lambda: self.rows[y],
+                    lambda: self.columns[x],
+                    lambda: self.get_blocks()[block_n]
+                    )
+
+    def get_containing_arrays(self, position: Coordinate):
+        for array_f in self.get_containing_array_functions(position):
+            yield array_f()
 
     @staticmethod
-    def box_values(iter_of_boxes: Iterable[Box]):
+    def box_values(iter_of_boxes: Iterable[Box]) -> Iterable[Optional[int]]:
         return iter_of_boxes.__class__(x.value for x in iter_of_boxes)
+
+    def update_stored_box_coordinates(self):
+        for x, column in enumerate(self.columns):
+            for y, box in enumerate(column):
+                box.coords = (x, y)
 
     def check_complete(self):
         for row in self.rows:
