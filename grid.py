@@ -26,7 +26,7 @@ class Box:
 
     @value.setter
     def value(self, n: int):
-        assert n in self.possible_values
+        assert n in self.possible_values, f'Invalid value of n, {n}, provided for {self!r}'
         self.clear_possible_values()
         self._value = n
 
@@ -182,6 +182,10 @@ class BoxGrid:
     def box_values(iter_of_boxes: Iterable[Box]) -> Iterable[Optional[int]]:
         return iter_of_boxes.__class__(x.value for x in iter_of_boxes)
 
+    @staticmethod
+    def completed_box_values(iter_of_boxes: Iterable[Box]) -> Iterable[Optional[int]]:
+        return iter_of_boxes.__class__(x.value for x in iter_of_boxes if x.value is not None)
+
     def update_boxes_internal_coordinates(self):
         for x, column in enumerate(self.columns):
             for y, box in enumerate(column):
@@ -196,6 +200,15 @@ class BoxGrid:
                 if box.possible_values:
                     return False
         return True
+
+    def check_errors(self):
+        for arrays in self.all_arrays:
+            for array in arrays:
+                completed_box_values = self.completed_box_values(array)
+                if len(tuple(completed_box_values)) != len(set(completed_box_values)):
+                    return True
+        return False
+
 
     def __eq__(self, other):
         if not isinstance(other, BoxGrid):

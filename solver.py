@@ -2,25 +2,39 @@ from typing import List, Set, Optional, Tuple
 
 from grid import Box, BoxGrid, Coordinate
 
+
 class UnsolvableException(ValueError): pass
 
+class UnfinishableException(UnsolvableException): pass
+
 class SudokuSolver:
-    def __init__(self, grid):
-        self.grid: BoxGrid = grid
+    def __init__(self, grid: BoxGrid, *, max_emergency_depth: int=81):
+        self.grid = grid
+        self.max_emergency_depth = max_emergency_depth
 
     def solve(self):
         previous_grid = None
-        pre_previous_grid, previous_grid = previous_grid, self.grid.deep_copy()
         while not self.grid.check_complete():
-            print("Restart process")
-            if pre_previous_grid == self.grid == previous_grid:
-                raise SystemExit("No Change, so lets leave be")
+            if previous_grid == self.grid:
+                if self.max_emergency_depth:
+                    print("WARNING 007 - Engaging emergency measures")
+                    print("This could take a while, go make a hot chocolate or something...")
+                    self.grid.columns = self.emergency_measures().columns
+                    return
+                else:
+                    raise UnfinishableException('Cannot solve as recursive depth limit reached')
+
+            previous_grid = self.grid.deep_copy()
+
             # Array meaning OrderedIterable, `arrays` is all rows, columns or blocks
             for arrays in self.grid.all_arrays:
                 # `array` is a row, column or block
                 for array in arrays:
                     for box in array:
                         self.handle_box(box, array)
+
+            if self.grid.check_errors():
+                raise UnsolvableException("Some processing has lead to an incorrect answer, suggesting the original puzzle was not solvable")
 
     def update_possible_values(self, coords: Coordinate):
         for array in self.grid.get_containing_arrays(coords):
@@ -33,7 +47,11 @@ class SudokuSolver:
 
         # Remove any impossible values and finalise if necessary
         box.possible_values -= set(BoxGrid.box_values(array))
-        if len(box.possible_values) == 1:
+        if not box.possible_values:
+            raise UnsolvableException(
+                f"The box at ({box.coords} has had all possibilities removed, and thus cannot be solved"
+            )
+        elif len(box.possible_values) == 1:
             box.finalise()
             # If finalised, we can remove possible values from nearby items, and actually just handle the corresponding arrays
             self.update_possible_values(box.coords)
@@ -93,8 +111,8 @@ class SudokuSolver:
                                       f"array {array}")
 
     def intersectinggrouping_heuristic(self, box: Box, array: List[Box]):
+        """Also known as heuristic_c"""
         def inner(boxes: List[Box], possible_value_set: Set[int], remaining: List[Box]) -> Optional[Tuple[List[Box], Set[int]]]:
-            #boxes_possible_values = reduce(lambda a, b: a & b, (b.possible_values for b in boxes))
             for other in sorted(remaining, key=lambda x: len(x.possible_values)):
                 if other.possible_values & possible_value_set:
                     extended_pvs = other.possible_values | possible_value_set
@@ -118,9 +136,28 @@ class SudokuSolver:
         r = inner([box], box.possible_values, array)
         if isinstance(r, tuple):
             boxes, possible_value_set = r
-            #print('Result!', boxes, possible_value_set)
             for b in array:
                 if b not in boxes and possible_value_set & b.possible_values:
-                    print('Removing', boxes, possible_value_set, b)
                     b.possible_values -= possible_value_set
+
+    def emergency_measures(self):
+        for depth in range(self.max_emergency_depth):
+            for column in self.grid.columns:
+                for box in column:
+                    if box.is_filled:
+                        continue
+
+                    for possibility in box.possible_values:
+                        possibility_grid = self.grid.deep_copy()
+                        possibility_grid[box.coords].value = possibility
+                        try:
+                            solver = SudokuSolver(possibility_grid, max_emergency_depth=depth)
+                            solver.solve()
+                        except UnsolvableException as e:
+                            if solver.grid and solver.grid.check_complete() and not solver.grid.check_errors():
+                                return solver.grid
+                            continue
+                        else:
+                            return solver.grid
+        raise UnsolvableException('Emergency measures approach unable to solve, um, well, you\'re kind of ...d')
 
